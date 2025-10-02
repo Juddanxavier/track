@@ -6,7 +6,9 @@ import {
     RiToolsFill,
     RiSettingsLine,
     RiSpeedUpLine,
-    RiBankCardLine
+    RiBankCardLine,
+    RiUserLine,
+    RiContactsLine
 } from "@remixicon/react"
 import Image from "next/image"
 import Link from "next/link"
@@ -32,12 +34,19 @@ const data = {
         {
             title: "General",
             items: [
-                {title: "Dashboard",url: "/dashboard",icon: RiSpeedUpLine},
-                {title: "Analytics",url: "/dashboard/analytics",icon: RiLineChartLine},
-                {title: "Integrations",url: "/dashboard/integrations",icon: RiToolsFill},
-                {title: "Settings",url: "/dashboard/settings",icon: RiSettingsLine},
-                {title: "Billing",url: "/dashboard/billing",icon: RiBankCardLine},
-                {title: "API",url: "/dashboard/api",icon: RiCodeSSlashLine},
+                { title: "Dashboard", url: "/dashboard", icon: RiSpeedUpLine },
+                { title: "Analytics", url: "/dashboard/analytics", icon: RiLineChartLine },
+                { title: "Integrations", url: "/dashboard/integrations", icon: RiToolsFill },
+                { title: "Settings", url: "/dashboard/settings", icon: RiSettingsLine },
+                { title: "Billing", url: "/dashboard/billing", icon: RiBankCardLine },
+                { title: "API", url: "/dashboard/api", icon: RiCodeSSlashLine },
+            ]
+        },
+        {
+            title: "Admin",
+            items: [
+                { title: "Users", url: "/admin/users", icon: RiUserLine },
+                { title: "Leads", url: "/admin/leads", icon: RiContactsLine },
             ]
         }
     ]

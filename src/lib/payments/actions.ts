@@ -23,18 +23,19 @@ export async function getActiveSubscription(): Promise<{
     }
 
     try {
-        const activeSubs = await auth.api.listActiveSubscriptions({
-            headers: await headers()
-        })
-        const activeSub =
-            activeSubs.length > 1
-                ? activeSubs.find(
-                      (sub) =>
-                          sub.status === "active" || sub.status === "trialing"
-                  )
-                : activeSubs[0]
+        // TODO: Fix this when better-auth stripe plugin is properly configured
+        // const activeSubs = await auth.api.listActiveSubscriptions({
+        //     headers: await headers()
+        // })
+        // const activeSub =
+        //     activeSubs.length > 1
+        //         ? activeSubs.find(
+        //               (sub: any) =>
+        //                   sub.status === "active" || sub.status === "trialing"
+        //           )
+        //         : activeSubs[0]
         return {
-            subscription: activeSub ?? null,
+            subscription: null,
             status: true
         }
     } catch (error) {

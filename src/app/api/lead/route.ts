@@ -1,10 +1,11 @@
 /** @format */
 
-import { isAdmin } from '@/helpers/authHelpers';
+import { isAdmin, getSession } from '@/helpers/authHelpers';
 import { db } from '@/database/db';
 import { leads, users } from '@/database/schema';
 import { NextRequest, NextResponse } from 'next/server';
 import { count, desc, asc, or, ilike, eq, gte, lt, isNull, and } from 'drizzle-orm';
+import { notificationEventHandlers } from '@/lib/notificationEventHandlers';
 import z from 'zod';
 import { nanoid } from 'nanoid';
 
@@ -340,6 +341,25 @@ export async function POST(req: NextRequest) {
             .limit(1);
 
         const newLead = newLeadResult[0];
+
+        // Trigger notification for lead assignment if assigned
+        if (assignedTo) {
+            try {
+                const session = await getSession(req);
+                const assignedBy = session?.user?.id || 'system';
+
+                await notificationEventHandlers.handleLeadAssignment({
+                    id: leadId,
+                    customerName,
+                    customerEmail,
+                    assignedTo,
+                    assignedBy,
+                });
+            } catch (notificationError) {
+                console.error('Failed to send lead assignment notification:', notificationError);
+                // Don't fail lead creation if notifications fail
+            }
+        }
 
         return NextResponse.json({
             lead: newLead,

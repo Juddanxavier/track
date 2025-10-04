@@ -258,7 +258,7 @@ export const isStatusRequiresReason = (status: Lead['status']): boolean => {
 };
 
 export const canConvertLead = (lead: Lead): boolean => {
-    return lead.status === 'success';
+    return lead.status === 'success' && !lead.shipmentId;
 };
 
 // Lead display utilities

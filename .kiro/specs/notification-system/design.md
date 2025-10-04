@@ -2,7 +2,7 @@
 
 ## Overview
 
-The central notification system will provide real-time notifications for both admin and customer users through a bell icon interface and dedicated notifications page. The system will be built using Next.js 15, React 19, Drizzle ORM with PostgreSQL, and Server-Sent Events (SSE) for real-time delivery.
+The central notification system will provide real-time notifications for both admin and customer users through a bell icon interface and dedicated notifications page. The system will be built using Next.js 15, React 19, Drizzle ORM with PostgreSQL, and Server-Sent Events (SSE) for simple, efficient real-time delivery.
 
 The system integrates seamlessly with the existing user management and lead management systems, providing contextual notifications based on user roles and system events.
 
@@ -15,30 +15,33 @@ graph TB
     A[Client Components] --> B[Notification API Routes]
     B --> C[Notification Service]
     C --> D[Database Layer]
-    C --> E[SSE Manager]
-    E --> F[Real-time Connections]
+    C --> E[SSE Connection Manager]
+    E --> F[Real-time SSE Connections]
     
     G[Event Triggers] --> C
     H[Background Jobs] --> C
     
     subgraph "Client Layer"
-        A1[Bell Icon Component]
+        A1[Bell Icon Component with Badge]
         A2[Notification Dropdown]
         A3[Notifications Page]
         A4[Notification Preferences]
+        A5[SSE Client Connection]
     end
     
     subgraph "API Layer"
         B1[/api/notifications]
-        B2[/api/notifications/sse]
+        B2[/api/notifications/sse - SSE Endpoint]
         B3[/api/notifications/preferences]
         B4[/api/notifications/mark-read]
+        B5[/api/notifications/unread-count]
     end
     
     subgraph "Service Layer"
         C1[NotificationService]
         C2[NotificationEventHandler]
         C3[NotificationTemplateEngine]
+        C4[SSEConnectionManager]
     end
     
     subgraph "Data Layer"
@@ -53,9 +56,63 @@ graph TB
 - **Frontend**: React 19, Next.js 15, TypeScript, Tailwind CSS, Shadcn/ui
 - **Backend**: Next.js API Routes, Server-Sent Events (SSE)
 - **Database**: PostgreSQL with Drizzle ORM
-- **Real-time**: Server-Sent Events (SSE) for live notifications
+- **Real-time**: Server-Sent Events (SSE) for efficient one-way real-time communication
 - **Icons**: Lucide React (bell icon), Remixicon (notification types)
 - **State Management**: React hooks with context for notification state
+
+## Server-Sent Events (SSE) Integration
+
+### SSE Connection Management
+
+The SSE system will be implemented using Next.js API routes with a simple connection manager:
+
+```typescript
+// src/lib/sseConnectionManager.ts
+export class SSEConnectionManager {
+  private connections: Map<string, Set<Response>>; // userId -> Set of Response streams
+  
+  // Add user connection
+  // Remove user connection
+  // Broadcast to specific user
+  // Broadcast to all users
+  // Clean up closed connections
+}
+
+// src/app/api/notifications/sse/route.ts
+// SSE endpoint for real-time notifications
+// Authentication middleware for SSE connections
+// Connection lifecycle management
+```
+
+### SSE Event Types
+
+**Server → Client Events:**
+- `notification` - New notification received
+- `notification_read` - Notification marked as read
+- `unread_count` - Updated unread count
+- `connection_status` - Connection status updates
+- `heartbeat` - Keep-alive ping
+
+### Enhanced Badge System
+
+The notification badge will feature:
+
+1. **Visual Design**
+   - Red circular badge with white text
+   - Positioned at top-right of bell icon
+   - Minimum size for single digits, expands for larger numbers
+   - Shows "99+" for counts over 99
+
+2. **Animations**
+   - Pulse animation when new notifications arrive
+   - Smooth fade in/out transitions
+   - Bounce effect for urgent notifications
+   - Badge disappears when count reaches 0
+
+3. **Real-time Updates**
+   - Instant updates via SSE events
+   - Optimistic updates for better UX
+   - Fallback to API polling if SSE fails
 
 ## Components and Interfaces
 
@@ -179,9 +236,11 @@ export interface NotificationListResponse {
 #### 1. NotificationBell Component
 ```typescript
 // src/components/notifications/NotificationBell.tsx
-// - Bell icon with badge showing unread count
+// - Bell icon with animated badge showing unread count
+// - Real-time badge updates via SSE
+// - Badge styling: red circle with white text, positioned top-right
+// - Badge animations: pulse effect for new notifications
 // - Dropdown with recent notifications
-// - Real-time updates via SSE
 // - Click handlers for navigation and mark as read
 ```
 
@@ -409,9 +468,10 @@ erDiagram
 ### Real-time Performance
 
 1. **SSE Optimization**
-   - Connection pooling and management
-   - Efficient message broadcasting
-   - Memory-efficient connection tracking
+   - Efficient connection management and cleanup
+   - Memory-efficient user connection tracking
+   - Automatic reconnection with exponential backoff
+   - Connection heartbeat for reliability
 
 2. **Client-Side Performance**
    - Debounced API calls

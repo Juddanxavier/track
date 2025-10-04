@@ -121,11 +121,51 @@ class LeadApiClient {
     // Convert successful lead to shipment
     async convertToShipment(
         id: string,
-        data?: ConvertLeadRequest
-    ): Promise<ApiResponse<Lead>> {
-        return this.request<ApiResponse<Lead>>(`/${id}/convert`, {
+        data: {
+            courier: string;
+            courierTrackingNumber?: string;
+            shippingMethod?: string;
+            packageDescription?: string;
+            weight?: string;
+            dimensions?: {
+                length: number;
+                width: number;
+                height: number;
+                unit: 'in' | 'cm';
+            };
+            value?: string;
+            originAddress?: {
+                name: string;
+                company?: string;
+                addressLine1: string;
+                addressLine2?: string;
+                city: string;
+                state: string;
+                postalCode: string;
+                country: string;
+                phone?: string;
+            };
+            destinationAddress?: {
+                name: string;
+                company?: string;
+                addressLine1: string;
+                addressLine2?: string;
+                city: string;
+                state: string;
+                postalCode: string;
+                country: string;
+                phone?: string;
+            };
+            estimatedDelivery?: Date;
+            apiProvider?: 'shipengine' | 'manual';
+            apiTrackingId?: string;
+            notes?: string;
+            specialInstructions?: string;
+        }
+    ): Promise<ApiResponse> {
+        return this.request<ApiResponse>(`/${id}/convert-to-shipment`, {
             method: 'POST',
-            body: JSON.stringify(data || {}),
+            body: JSON.stringify(data),
         });
     }
 

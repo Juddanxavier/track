@@ -5,6 +5,7 @@ import { db } from '@/database/db';
 import { users } from '@/database/schema';
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
+import { notificationEventHandlers } from '@/lib/notificationEventHandlers';
 import z from 'zod';
 
 const updateUserSchema = z.object({
@@ -206,6 +207,56 @@ export async function PUT(
                 updatedAt: users.updatedAt,
                 stripeCustomerId: users.stripeCustomerId,
             });
+
+        // Trigger notification events for user updates (admin only)
+        if (isAdminUser && !isOwnProfile) {
+            try {
+                // Check for ban/unban changes
+                const wasBanned = existingUser.banned;
+                const isBanned = updatedUser.banned;
+
+                if (!wasBanned && isBanned) {
+                    // User was banned
+                    await notificationEventHandlers.handleUserBan({
+                        id: updatedUser.id,
+                        name: updatedUser.name || '',
+                        email: updatedUser.email,
+                        banReason: updatedUser.banReason,
+                        bannedBy: session.user.id,
+                    });
+                } else if (wasBanned && !isBanned) {
+                    // User was unbanned
+                    await notificationEventHandlers.handleUserUnban({
+                        id: updatedUser.id,
+                        name: updatedUser.name || '',
+                        email: updatedUser.email,
+                        unbannedBy: session.user.id,
+                    });
+                }
+
+                // Check for other profile changes
+                const changes: string[] = [];
+                if (updateData.name && updateData.name !== existingUser.name) changes.push('name');
+                if (updateData.email && updateData.email !== existingUser.email) changes.push('email');
+                if (updateData.phone && updateData.phone !== existingUser.phone) changes.push('phone');
+                if (updateData.role && updateData.role !== existingUser.role) changes.push('role');
+                if (updateData.address && updateData.address !== existingUser.address) changes.push('address');
+
+                if (changes.length > 0) {
+                    // Profile was updated by admin
+                    await notificationEventHandlers.handleAccountUpdate({
+                        id: updatedUser.id,
+                        name: updatedUser.name || '',
+                        email: updatedUser.email,
+                        updatedBy: session.user.id,
+                        changes,
+                    });
+                }
+            } catch (notificationError) {
+                console.error('Failed to send user update notifications:', notificationError);
+                // Don't fail user update if notifications fail
+            }
+        }
 
         // If not admin, hide sensitive fields in response
         if (!isAdminUser) {

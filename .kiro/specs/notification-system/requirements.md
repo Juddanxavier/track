@@ -12,10 +12,13 @@ This document outlines the requirements for a central notification system that s
 
 #### Acceptance Criteria
 
-1. WHEN a user has unread notifications THEN the system SHALL display a bell icon with a red badge showing the count of unread notifications
+1. WHEN a user has unread notifications THEN the system SHALL display a bell icon with an animated red badge showing the count of unread notifications
 2. WHEN a user has no unread notifications THEN the system SHALL display a bell icon without any badge
-3. WHEN a user clicks the bell icon THEN the system SHALL open a dropdown showing the most recent 5 notifications with options to view all or mark as read
-4. WHEN a user hovers over the bell icon THEN the system SHALL show a tooltip indicating "Notifications"
+3. WHEN a new notification arrives THEN the badge SHALL animate with a pulse effect to draw attention
+4. WHEN the unread count exceeds 99 THEN the badge SHALL display "99+" instead of the exact number
+5. WHEN a user clicks the bell icon THEN the system SHALL open a dropdown showing the most recent 5 notifications with options to view all or mark as read
+6. WHEN a user hovers over the bell icon THEN the system SHALL show a tooltip indicating "Notifications"
+7. WHEN notifications are marked as read THEN the badge count SHALL update in real-time via Server-Sent Events
 
 ### Requirement 2
 
@@ -57,10 +60,11 @@ This document outlines the requirements for a central notification system that s
 
 #### Acceptance Criteria
 
-1. WHEN a new notification is created for a user THEN the system SHALL deliver it in real-time using WebSocket or Server-Sent Events
-2. WHEN a user receives a real-time notification THEN the bell icon badge SHALL update immediately
-3. WHEN multiple users are online THEN the system SHALL deliver notifications to all relevant users simultaneously
-4. IF the real-time connection is lost THEN the system SHALL attempt to reconnect automatically
+1. WHEN a new notification is created for a user THEN the system SHALL deliver it in real-time using Server-Sent Events (SSE)
+2. WHEN a user receives a real-time notification THEN the bell icon badge SHALL update immediately with animation
+3. WHEN multiple users are online THEN the system SHALL deliver notifications to all relevant users simultaneously through SSE connections
+4. IF the SSE connection is lost THEN the system SHALL attempt to reconnect automatically with exponential backoff
+5. WHEN a user connects THEN the system SHALL establish an SSE connection for receiving real-time notifications
 
 ### Requirement 6
 
@@ -74,6 +78,19 @@ This document outlines the requirements for a central notification system that s
 4. WHEN a user updates notification preferences THEN the system SHALL save the changes immediately
 
 ### Requirement 7
+
+**User Story:** As a user, I want reliable real-time communication for notifications using Server-Sent Events, so that I can receive instant updates with a simple and efficient connection.
+
+#### Acceptance Criteria
+
+1. WHEN a user connects to the application THEN the system SHALL establish an SSE connection for receiving notifications
+2. WHEN a notification is created THEN the system SHALL broadcast it to the user's SSE connection in real-time
+3. WHEN a user marks a notification as read THEN the system SHALL send an update event to all SSE connections for that user
+4. WHEN the SSE connection fails THEN the system SHALL attempt automatic reconnection with exponential backoff
+5. WHEN a user disconnects THEN the system SHALL clean up their SSE connection resources
+6. WHEN multiple browser tabs are open THEN all tabs SHALL receive real-time notification updates via their respective SSE connections
+
+### Requirement 8
 
 **User Story:** As a developer, I want a flexible notification system that can be easily extended with new notification types, so that future features can integrate seamlessly with the notification system.
 

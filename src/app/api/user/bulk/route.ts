@@ -1,10 +1,11 @@
 /** @format */
 
-import { isAdmin, isSuperAdmin } from '@/helpers/authHelpers';
+import { isAdmin, isSuperAdmin, getSession } from '@/helpers/authHelpers';
 import { db } from '@/database/db';
 import { users } from '@/database/schema';
 import { NextRequest, NextResponse } from 'next/server';
 import { inArray, eq } from 'drizzle-orm';
+import { notificationEventHandlers } from '@/lib/notificationEventHandlers';
 import z from 'zod';
 
 const bulkActionSchema = z.object({
@@ -155,6 +156,56 @@ export async function POST(req: NextRequest) {
                     { error: 'Invalid action' },
                     { status: 400 }
                 );
+        }
+
+        // Trigger notification for bulk action completion
+        try {
+            const session = await getSession(req);
+            const performedBy = session?.user?.id || 'system';
+
+            let successCount = 0;
+            let errorCount = 0;
+
+            if (Array.isArray(result)) {
+                successCount = result.length;
+                errorCount = userIds.length - result.length;
+            } else if (action === 'delete') {
+                successCount = userIds.length;
+                errorCount = 0;
+            }
+
+            await notificationEventHandlers.handleBulkActionCompleted({
+                action,
+                totalCount: userIds.length,
+                successCount,
+                errorCount,
+                performedBy,
+            });
+
+            // For ban/unban actions, also trigger individual notifications
+            if (action === 'ban' && Array.isArray(result)) {
+                for (const user of result) {
+                    await notificationEventHandlers.handleUserBan({
+                        id: user.id,
+                        name: user.name || '',
+                        email: user.email,
+                        banReason: data?.reason,
+                        bannedBy: performedBy,
+                    });
+                }
+            } else if (action === 'unban' && Array.isArray(result)) {
+                for (const user of result) {
+                    await notificationEventHandlers.handleUserUnban({
+                        id: user.id,
+                        name: user.name || '',
+                        email: user.email,
+                        unbannedBy: performedBy,
+                    });
+                }
+            }
+        } catch (notificationError) {
+            console.error('Failed to send bulk action notifications:', notificationError);
+            // Don't fail the operation if notifications fail
         }
 
         return NextResponse.json({

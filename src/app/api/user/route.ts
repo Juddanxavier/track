@@ -6,6 +6,7 @@ import { users, accounts } from '@/database/schema';
 import { NextRequest, NextResponse } from 'next/server';
 import { count, desc, asc, or, ilike, eq } from 'drizzle-orm';
 import { auth } from '@/lib/auth';
+import { notificationEventHandlers } from '@/lib/notificationEventHandlers';
 import z from 'zod';
 
 // Generate a secure temporary password
@@ -243,6 +244,28 @@ export async function POST(req: NextRequest) {
           console.error('Failed to send welcome email:', emailError);
           // Don't fail user creation if email fails
         }
+      }
+
+      // Trigger notification events for user registration
+      try {
+        // Send admin notification about new user registration
+        await notificationEventHandlers.handleUserRegistration({
+          id: updatedUser.id,
+          name: updatedUser.name || '',
+          email: updatedUser.email,
+          role: updatedUser.role || 'customer',
+        });
+
+        // Send welcome notification to the new user
+        await notificationEventHandlers.handleWelcomeMessage({
+          id: updatedUser.id,
+          name: updatedUser.name || '',
+          email: updatedUser.email,
+          role: updatedUser.role || 'customer',
+        });
+      } catch (notificationError) {
+        console.error('Failed to send user registration notifications:', notificationError);
+        // Don't fail user creation if notifications fail
       }
 
       return NextResponse.json({

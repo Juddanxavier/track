@@ -1,10 +1,11 @@
 /** @format */
 
-import { isAdmin } from '@/helpers/authHelpers';
+import { isAdmin, getSession } from '@/helpers/authHelpers';
 import { db } from '@/database/db';
 import { leads, users } from '@/database/schema';
 import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
+import { notificationEventHandlers } from '@/lib/notificationEventHandlers';
 import z from 'zod';
 
 const updateLeadSchema = z.object({
@@ -236,6 +237,51 @@ export async function PUT(
             .limit(1);
 
         const updatedLead = updatedLeadResult[0];
+
+        // Trigger notifications for specific status changes
+        try {
+            const session = await getSession(req);
+            const updatedBy = session?.user?.id || 'system';
+
+            // Check for lead conversion
+            if (updateData.status === 'converted' && existingLead.status !== 'converted') {
+                await notificationEventHandlers.handleLeadConversion({
+                    id: updatedLead.id,
+                    customerName: updatedLead.customerName,
+                    customerEmail: updatedLead.customerEmail,
+                    customerId: updatedLead.customerId,
+                    assignedTo: updatedLead.assignedTo,
+                    convertedAt: updatedLead.convertedAt || new Date(),
+                });
+            }
+
+            // Check for lead assignment changes
+            if (updateData.assignedTo && updateData.assignedTo !== existingLead.assignedTo) {
+                await notificationEventHandlers.handleLeadAssignment({
+                    id: updatedLead.id,
+                    customerName: updatedLead.customerName,
+                    customerEmail: updatedLead.customerEmail,
+                    assignedTo: updateData.assignedTo,
+                    assignedBy: updatedBy,
+                });
+            }
+
+            // Check for status changes that should notify the customer
+            if (updateData.status && updateData.status !== existingLead.status && updatedLead.customerId) {
+                await notificationEventHandlers.handleLeadStatusUpdate({
+                    id: updatedLead.id,
+                    customerName: updatedLead.customerName,
+                    customerEmail: updatedLead.customerEmail,
+                    customerId: updatedLead.customerId,
+                    oldStatus: existingLead.status,
+                    newStatus: updateData.status,
+                    updatedBy,
+                });
+            }
+        } catch (notificationError) {
+            console.error('Failed to send lead update notifications:', notificationError);
+            // Don't fail lead update if notifications fail
+        }
 
         return NextResponse.json({
             lead: updatedLead,

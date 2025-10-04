@@ -47,9 +47,15 @@ import {
 } from '@/lib/leadUtils';
 
 const formSchema = z.object({
-    trackingNumber: z.string().optional(),
+    courier: z.string().min(1, 'Courier is required'),
+    courierTrackingNumber: z.string().optional(),
+    shippingMethod: z.string().optional(),
+    packageDescription: z.string().optional(),
+    weight: z.string().optional(),
+    value: z.string().optional(),
     estimatedDelivery: z.string().optional(),
     notes: z.string().optional(),
+    specialInstructions: z.string().optional(),
 });
 
 interface ConvertLeadDialogProps {
@@ -65,9 +71,15 @@ export function ConvertLeadDialog({ lead, open, onOpenChange, onSuccess }: Conve
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
-            trackingNumber: '',
+            courier: '',
+            courierTrackingNumber: '',
+            shippingMethod: '',
+            packageDescription: '',
+            weight: lead?.weight || '',
+            value: '',
             estimatedDelivery: '',
             notes: '',
+            specialInstructions: '',
         },
     });
 
@@ -77,15 +89,24 @@ export function ConvertLeadDialog({ lead, open, onOpenChange, onSuccess }: Conve
         try {
             setLoading(true);
 
-            await leadApi.convertToShipment(lead.id, {
-                shipmentData: {
-                    trackingNumber: values.trackingNumber || undefined,
-                    estimatedDelivery: values.estimatedDelivery || undefined,
-                },
-            });
+            const shipmentData = {
+                courier: values.courier,
+                courierTrackingNumber: values.courierTrackingNumber || undefined,
+                shippingMethod: values.shippingMethod || undefined,
+                packageDescription: values.packageDescription || undefined,
+                weight: values.weight || undefined,
+                value: values.value || undefined,
+                estimatedDelivery: values.estimatedDelivery ? new Date(values.estimatedDelivery) : undefined,
+                notes: values.notes || undefined,
+                specialInstructions: values.specialInstructions || undefined,
+            };
+
+            const response = await leadApi.convertToShipment(lead.id, shipmentData);
 
             toast.success('Lead converted successfully', {
-                description: `Lead for ${lead.customerName} has been converted to a shipment`,
+                description: (response as any).shipment?.trackingCode
+                    ? `Lead for ${lead.customerName} has been converted to shipment ${(response as any).shipment.trackingCode}`
+                    : `Lead for ${lead.customerName} has been converted to a shipment`,
             });
 
             form.reset();
@@ -109,7 +130,7 @@ export function ConvertLeadDialog({ lead, open, onOpenChange, onSuccess }: Conve
 
     if (!lead) return null;
 
-    const canConvert = lead.status === 'success';
+    const canConvert = lead.status === 'success' && !lead.shipmentId;
 
     return (
         <Dialog open={open} onOpenChange={handleClose}>
@@ -192,8 +213,10 @@ export function ConvertLeadDialog({ lead, open, onOpenChange, onSuccess }: Conve
                                 <span className='font-medium'>Cannot Convert Lead</span>
                             </div>
                             <p className='text-sm text-destructive/80 mt-1'>
-                                Only leads with "Success" status can be converted to shipments.
-                                Current status: {getStatusDisplayText(lead.status)}
+                                {lead.shipmentId
+                                    ? `This lead has already been converted to shipment ${lead.shipmentId}`
+                                    : `Only leads with "Success" status can be converted to shipments. Current status: ${getStatusDisplayText(lead.status)}`
+                                }
                             </p>
                         </div>
                     )}
@@ -216,18 +239,113 @@ export function ConvertLeadDialog({ lead, open, onOpenChange, onSuccess }: Conve
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-4'>
                             <div>
-                                <h3 className='text-lg font-medium mb-4'>Shipment Details (Optional)</h3>
+                                <h3 className='text-lg font-medium mb-4'>Shipment Details</h3>
 
-                                <div className='grid grid-cols-2 gap-4'>
+                                {/* Required Fields */}
+                                <div className='space-y-4'>
                                     <FormField
                                         control={form.control}
-                                        name='trackingNumber'
+                                        name='courier'
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Tracking Number</FormLabel>
+                                                <FormLabel>Courier *</FormLabel>
                                                 <FormControl>
                                                     <Input
-                                                        placeholder='e.g., TRK123456789'
+                                                        placeholder='e.g., FedEx, UPS, DHL'
+                                                        disabled={loading}
+                                                        {...field}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+
+                                    <div className='grid grid-cols-2 gap-4'>
+                                        <FormField
+                                            control={form.control}
+                                            name='courierTrackingNumber'
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Courier Tracking Number</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            placeholder='e.g., 1Z999AA1234567890'
+                                                            disabled={loading}
+                                                            {...field}
+                                                        />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+
+                                        <FormField
+                                            control={form.control}
+                                            name='shippingMethod'
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Shipping Method</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            placeholder='e.g., Express, Standard'
+                                                            disabled={loading}
+                                                            {...field}
+                                                        />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
+
+                                    <div className='grid grid-cols-2 gap-4'>
+                                        <FormField
+                                            control={form.control}
+                                            name='weight'
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Weight</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            placeholder='e.g., 5 kg'
+                                                            disabled={loading}
+                                                            {...field}
+                                                        />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+
+                                        <FormField
+                                            control={form.control}
+                                            name='value'
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Package Value</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            placeholder='e.g., $100.00'
+                                                            disabled={loading}
+                                                            {...field}
+                                                        />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
+
+                                    <FormField
+                                        control={form.control}
+                                        name='packageDescription'
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Package Description</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        placeholder='e.g., Electronics, Documents'
                                                         disabled={loading}
                                                         {...field}
                                                     />
@@ -254,26 +372,45 @@ export function ConvertLeadDialog({ lead, open, onOpenChange, onSuccess }: Conve
                                             </FormItem>
                                         )}
                                     />
-                                </div>
 
-                                <FormField
-                                    control={form.control}
-                                    name='notes'
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Conversion Notes</FormLabel>
-                                            <FormControl>
-                                                <Textarea
-                                                    placeholder='Add any notes about the conversion...'
-                                                    className='min-h-[80px]'
-                                                    disabled={loading}
-                                                    {...field}
-                                                />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                    <FormField
+                                        control={form.control}
+                                        name='specialInstructions'
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Special Instructions</FormLabel>
+                                                <FormControl>
+                                                    <Textarea
+                                                        placeholder='Any special handling instructions...'
+                                                        className='min-h-[60px]'
+                                                        disabled={loading}
+                                                        {...field}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+
+                                    <FormField
+                                        control={form.control}
+                                        name='notes'
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Conversion Notes</FormLabel>
+                                                <FormControl>
+                                                    <Textarea
+                                                        placeholder='Add any notes about the conversion...'
+                                                        className='min-h-[60px]'
+                                                        disabled={loading}
+                                                        {...field}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
                             </div>
 
                             <DialogFooter className='gap-2'>

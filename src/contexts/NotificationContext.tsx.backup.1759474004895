@@ -1,0 +1,341 @@
+/** @format */
+
+'use client';
+
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import type { Notification } from '@/types/notification';
+import { SSEConnectionManager, createSSEConnection, type SSEMessage, type SSEConnectionState } from '@/lib/sseConnectionManager';
+import { authClient } from '@/lib/auth-client';
+
+interface NotificationContextType {
+    notifications: Notification[];
+    unreadCount: number;
+    isConnected: boolean;
+    isConnecting: boolean;
+    isLoading: boolean;
+    error: string | null;
+    reconnectAttempts: number;
+    connectionId: string | null;
+    markAsRead: (notificationId: string) => Promise<void>;
+    markAllAsRead: () => Promise<void>;
+    refreshNotifications: () => Promise<void>;
+    forceReconnect: () => void;
+}
+
+const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+export function useNotifications() {
+    const context = useContext(NotificationContext);
+    if (context === undefined) {
+        throw new Error('useNotifications must be used within a NotificationProvider');
+    }
+    return context;
+}
+
+interface NotificationProviderProps {
+    children: React.ReactNode;
+}
+
+export function NotificationProvider({ children }: NotificationProviderProps) {
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [isConnected, setIsConnected] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [reconnectAttempts, setReconnectAttempts] = useState(0);
+    const [connectionId, setConnectionId] = useState<string | null>(null);
+    const sseManagerRef = useRef<SSEConnectionManager | null>(null);
+    const isConnectingRef = useRef<boolean>(false);
+
+    // Get current user session
+    const { data: session, isPending: sessionLoading } = authClient.useSession();
+    const userId = session?.user?.id;
+
+    // Fetch initial notifications
+    const fetchNotifications = useCallback(async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+
+            const response = await fetch('/api/notifications/recent');
+            if (!response.ok) {
+                throw new Error('Failed to fetch notifications');
+            }
+
+            const data = await response.json();
+            setNotifications(data.notifications || []);
+            setUnreadCount(data.unreadCount || 0);
+        } catch (err) {
+            console.error('Error fetching notifications:', err);
+            setError(err instanceof Error ? err.message : 'Failed to fetch notifications');
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    // Handle SSE state changes
+    const handleSSEStateChange = useCallback((state: SSEConnectionState) => {
+        const wasConnected = isConnected;
+
+        setIsConnected(state.isConnected);
+        setIsConnecting(state.isConnecting);
+        setReconnectAttempts(state.reconnectAttempts);
+        setConnectionId(state.connectionId);
+        setError(state.lastError);
+
+        // Show user feedback for connection state changes
+        if (!wasConnected && state.isConnected) {
+            console.log('✅ Real-time notifications connected');
+        } else if (wasConnected && !state.isConnected && state.lastError) {
+            console.warn('⚠️ Real-time notifications disconnected:', state.lastError);
+        }
+    }, [isConnected]);
+
+    // Handle notification messages
+    const handleNotificationMessage = useCallback((message: SSEMessage) => {
+        if (message.type === 'notification') {
+            const newNotification = message.data as Notification;
+
+            // Add new notification to the list
+            setNotifications(prev => [newNotification, ...prev.slice(0, 4)]); // Keep only 5 most recent
+            setUnreadCount(prev => prev + 1);
+        }
+    }, []);
+
+    // Handle unread count updates
+    const handleUnreadCountUpdate = useCallback((message: SSEMessage) => {
+        if (message.type === 'unread_count_update') {
+            setUnreadCount(message.data.unreadCount);
+        }
+    }, []);
+
+    // Handle notification read updates
+    const handleNotificationReadUpdate = useCallback((message: SSEMessage) => {
+        if (message.type === 'notification_read') {
+            const { notificationId } = message.data;
+
+            setNotifications(prev =>
+                prev.map(notification =>
+                    notification.id === notificationId
+                        ? { ...notification, read: true, readAt: new Date() }
+                        : notification
+                )
+            );
+        }
+    }, []);
+
+
+
+    // Setup SSE connection for real-time notifications
+    const setupSSEConnection = useCallback(() => {
+        if (!userId) {
+            console.log('⚠️ No userId, skipping SSE setup');
+            return;
+        }
+
+        if (isConnectingRef.current) {
+            console.log('⚠️ Already connecting, skipping duplicate SSE setup');
+            return;
+        }
+
+        console.log('🔧 Setting up new SSE connection for user:', userId);
+        isConnectingRef.current = true;
+
+        // Clean up existing connection
+        if (sseManagerRef.current) {
+            console.log('🧹 Destroying existing SSE connection');
+            sseManagerRef.current.destroy();
+            sseManagerRef.current = null;
+        }
+
+        const sseManager = createSSEConnection({
+            url: `/api/notifications/sse?userId=${encodeURIComponent(userId)}`,
+            maxReconnectAttempts: 10,
+            initialReconnectDelay: 1000,
+            maxReconnectDelay: 30000,
+            backoffMultiplier: 2,
+            heartbeatTimeout: 75000, // Increased to 75 seconds (server sends every 30s)
+        });
+
+        // Add event listeners
+        sseManager.addEventListener('notification', handleNotificationMessage);
+        sseManager.addEventListener('unread_count_update', handleUnreadCountUpdate);
+        sseManager.addEventListener('notification_read', handleNotificationReadUpdate);
+
+        // Add state change listener with connection tracking
+        const stateChangeHandler = (state: SSEConnectionState) => {
+            handleSSEStateChange(state);
+            // Reset connecting flag when connection is established or fails
+            if (state.isConnected || (!state.isConnecting && state.lastError)) {
+                isConnectingRef.current = false;
+            }
+        };
+        sseManager.addStateChangeListener(stateChangeHandler);
+
+        // Connect
+        sseManager.connect();
+
+        sseManagerRef.current = sseManager;
+    }, [userId, handleNotificationMessage, handleUnreadCountUpdate, handleNotificationReadUpdate, handleSSEStateChange]);
+
+
+
+    // Force reconnect function
+    const forceReconnect = useCallback(() => {
+        if (sseManagerRef.current) {
+            sseManagerRef.current.forceReconnect();
+        }
+    }, []);
+
+    // Mark notification as read
+    const markAsRead = useCallback(async (notificationId: string) => {
+        try {
+            const response = await fetch(`/api/notifications/${notificationId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ read: true }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to mark notification as read');
+            }
+
+            // Update local state
+            setNotifications(prev =>
+                prev.map(notification =>
+                    notification.id === notificationId
+                        ? { ...notification, read: true, readAt: new Date() }
+                        : notification
+                )
+            );
+
+            // Update unread count
+            setUnreadCount(prev => Math.max(0, prev - 1));
+        } catch (err) {
+            console.error('Error marking notification as read:', err);
+        }
+    }, []);
+
+    // Mark all notifications as read
+    const markAllAsRead = useCallback(async () => {
+        try {
+            const response = await fetch('/api/notifications/mark-all-read', {
+                method: 'POST',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to mark all notifications as read');
+            }
+
+            // Update local state
+            setNotifications(prev =>
+                prev.map(notification => ({
+                    ...notification,
+                    read: true,
+                    readAt: new Date()
+                }))
+            );
+            setUnreadCount(0);
+        } catch (err) {
+            console.error('Error marking all notifications as read:', err);
+        }
+    }, []);
+
+    // Refresh notifications
+    const refreshNotifications = useCallback(async () => {
+        await fetchNotifications();
+    }, [fetchNotifications]);
+
+
+
+    // Initialize on mount
+    useEffect(() => {
+        if (sessionLoading) return; // Wait for session to load
+
+        fetchNotifications();
+
+        // Set up SSE for real-time notifications
+        if (userId) {
+            console.log('🔄 Setting up SSE for real-time notifications, userId:', userId);
+            setupSSEConnection();
+        }
+
+        // Cleanup on unmount
+        return () => {
+            console.log('🧹 Cleaning up SSE connection on unmount');
+            isConnectingRef.current = false;
+            if (sseManagerRef.current) {
+                sseManagerRef.current.destroy();
+                sseManagerRef.current = null;
+            }
+        };
+    }, [sessionLoading, userId]); // Removed setupSSEConnection and fetchNotifications from deps
+
+    // Monitor connection health and attempt recovery
+    useEffect(() => {
+        if (!userId || !sseManagerRef.current) return;
+
+        const healthCheckInterval = setInterval(() => {
+            const manager = sseManagerRef.current;
+            if (!manager) return;
+
+            const state = manager.getState();
+
+            // If we've been disconnected for more than 30 seconds, try to reconnect
+            if (!state.isConnected && !state.isConnecting && state.reconnectAttempts < 5) {
+                const timeSinceLastError = Date.now() - (state.lastHeartbeat || 0);
+                if (timeSinceLastError > 30000) {
+                    console.log('Connection health check: attempting recovery...');
+                    manager.forceReconnect();
+                }
+            }
+        }, 30000); // Check every 30 seconds
+
+        return () => clearInterval(healthCheckInterval);
+    }, [userId]);
+
+    // Handle visibility change to refresh when tab becomes active
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                if (isConnected) {
+                    refreshNotifications();
+                } else if (userId && sseManagerRef.current) {
+                    // Try to reconnect if we're not connected when tab becomes active
+                    console.log('Tab became active, attempting to reconnect SSE...');
+                    sseManagerRef.current.forceReconnect();
+                }
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [isConnected, refreshNotifications, userId]);
+
+    const value: NotificationContextType = {
+        notifications,
+        unreadCount,
+        isConnected,
+        isConnecting,
+        isLoading,
+        error,
+        reconnectAttempts,
+        connectionId,
+
+        markAsRead,
+        markAllAsRead,
+        refreshNotifications,
+        forceReconnect,
+    };
+
+    return (
+        <NotificationContext.Provider value={value}>
+            {children}
+        </NotificationContext.Provider>
+    );
+}
